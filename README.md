@@ -12,7 +12,7 @@ where they share a scene.
 Electronic-adjacent music only, drawn from a personal Last.fm library and filtered
 to leave out anything most people have already heard.
 
-Static HTML. No build step, no dependencies, and as usual no tracking.
+Static HTML. No build step, no dependencies, and as usual no tracking bs.
 
 ## Contact
 
