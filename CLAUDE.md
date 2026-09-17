@@ -1,6 +1,6 @@
 # QuietBroadcast
 
-One record every six hours, drawn from Greg's Last.fm library. Static HTML, no
+Three records a day, drawn from Gregor's Last.fm library. Static HTML, no
 build step, no dependencies, no tracking. `README.md` is the public face — keep it
 short. This file is the working document.
 
@@ -16,22 +16,35 @@ Let's Encrypt would block issuance silently.
 
 ## The mechanic
 
-Slots are six hours long, counted from `epoch` in `data/schedule.json`:
+The cadence comes in **eras**, listed as `SEGMENTS` in `tools/schedule.py` and written
+into `schedule.json` as `segments`:
 
 ```
-block = floor((now - epoch) / 6h)
-record = records[ slots[block] ]
+2026-09-10  6h   four a day   (blocks 0–31)
+2026-09-18  8h   three a day  (block 32 onward: 00:00, 08:00, 16:00)
 ```
+
+Blocks are numbered straight through the eras, and `record = records[slots[block]]`.
+**To change the cadence, append an era starting at a future Chicago midnight — never
+edit an existing one.** Changing a number in place renumbers every slot that has
+already aired: the Log would put records on the wrong days and the live record would
+jump mid-slot. `schedule.py` refuses a new era dated today or earlier for that reason.
+The switch to three a day was checked by comparing every aired slot before and after.
 
 **Station time is Chicago**, and a block is a Chicago calendar day plus a slot within
-it — deliberately *not* arithmetic from a fixed instant. That way a local day always
-holds exactly four slots, including the 23- and 25-hour days when the clocks move; fixed
-6h arithmetic drifts an hour twice a year. `tz` is written into `schedule.json` and both
+it — deliberately *not* arithmetic from a fixed instant. That way a local day keeps its
+full count of slots, including the 23- and 25-hour days when the clocks move; fixed
+arithmetic drifts an hour twice a year. `tz` is written into `schedule.json` and both
 pages read it from there. `tools/schedule.py` uses `zoneinfo` and the pages use
-`Intl.DateTimeFormat` with `formatToParts`, and the two must agree on the block number
-or frozen slots land wrong. Display dates derive from the block number itself, so nothing
-converts back. The countdown binary-searches the next boundary rather than adding six
-hours, which is what makes it correct across a transition.
+`Intl.DateTimeFormat` with `formatToParts`, and **the two must agree on the block
+number** or frozen slots land wrong. Display dates derive from the block number itself,
+so nothing converts back. The countdown binary-searches the next boundary rather than
+adding a fixed number of hours, which is what makes it correct across a DST change and
+across an era change.
+
+**Past the end of the written schedule the pages replay it** (`slots[block % length]`)
+rather than erroring. Before this they threw "the schedule has run out", so a long gap
+between refreshes would have taken the front page down, not just made it repeat.
 
 Everyone gets the same record at the same moment, and nothing is stored in the browser.
 
@@ -70,7 +83,7 @@ holds 180 days, and the failure mode is quiet: it doesn't break when it runs out
 just starts repeating. Run it every month or two.
 
 The API key lives at `~/.lastfm-key` (mode 600) and is read only by `tools/pull.py`
-on Greg's machine. **It must never enter the repo or any client-side JS** — the site
+on Gregor's machine. **It must never enter the repo or any client-side JS** — the site
 makes zero API calls at runtime and should stay that way.
 
 ## The filters, and why each exists
@@ -87,11 +100,11 @@ makes zero API calls at runtime and should stay that way.
 
 `ELECTRONIC_TAGS` is the gate. Trip-hop and sample-based instrumental beats are in
 (same machines); vocal rap and guitar music are out unless also tagged electronic.
-Two judgement calls worth knowing: disco and dub are in, because nu-disco and dub
+Two judgment calls worth knowing: disco and dub are in, because nu-disco and dub
 techno are entangled with the rest; and Gorillaz and Fishmans get through on their
 electronic tags, which is "adjacent" behaving as asked.
 
-`EXCLUDE_ARTISTS` keeps records off the station entirely: Greg's own (`gregor egan`)
+`EXCLUDE_ARTISTS` keeps records off the station entirely: Gregor's own (`gregor egan`)
 and `goose`, which slipped the electronic gate on a stray tag. Exact artist match.
 
 **Artless records are dropped.** `schedule.py` imports `url_map()` from `art.py` to see
@@ -107,7 +120,7 @@ the network graph.
 ## Last.fm quirks — do not rediscover these
 
 - A **listener** is a distinct user; a **play** is a scrobble. The fame ceiling uses
-  `listeners`, the taste filter uses Greg's own `plays`. Global `playcount` is unused.
+  `listeners`, the taste filter uses Gregor's own `plays`. Global `playcount` is unused.
 - Loved tracks are useless as a signal — he has 27.
 - `duration` comes back as an int sometimes and a string others. `tags` is an empty
   **string**, not an empty object, when absent. Shape-check everything; `listify()`
@@ -135,7 +148,7 @@ the network graph.
   counted them separately. `canon_tag()` folds `&`→`and`, turns `-_/` into spaces and
   collapses whitespace, then `tidy_tags()` dedupes. **`ELECTRONIC_TAGS` and
   `GENRE_FAMILIES` are folded through the same function when compared** — without that,
-  normalising the tags would silently drop `lo-fi`, `2-step` and friends out of the pool,
+  normalizing the tags would silently drop `lo-fi`, `2-step` and friends out of the pool,
   because the gate would be matching hyphenated spellings that no longer exist.
 
 ## Pages
@@ -196,7 +209,7 @@ the page scroll. The caption says "tap" instead of "click" when `(hover:none)` m
 ## Voice and look
 
 The pages are meant to read like the back of a sleeve, not an instrument panel.
-Greg asked for "organic, less dashboard" after a first pass that was all
+Gregor asked for "organic, less dashboard" after a first pass that was all
 monospace caps, pills, bordered buttons, stat tiles and bar charts. So:
 
 - **System serif** for nearly everything (`--serif`: Iowan Old Style / Palatino /
@@ -204,19 +217,21 @@ monospace caps, pills, bordered buttons, stat tiles and bar charts. So:
 - **Prose where there were labels.** "Four tracks, twenty-two minutes — techno, dub
   techno." Small numbers are spelled out (`words()`). The countdown is a sentence
   that updates every 30s, not a ticking clock.
-- **The four slots are named**, not numbered: *in the small hours* (00:00), *morning*
-  (06:00), *afternoon* (12:00), *evening* (18:00). Station time is UTC.
+- **Slots are named**, not numbered. Three a day: *overnight* (00:00), *during the
+  day* (08:00, "daytime" in the Log's journal), *evening* (16:00). The four-a-day era
+  keeps its own names — *in the small hours*, *morning*, *afternoon*, *evening* — so the
+  Log's older days still read correctly. `slotName()` picks by era. Chicago time.
 - The log's stats are a paragraph, tags are a weighted type cloud, recent slots are
   a journal grouped by day. No tiles, no bars.
 - Tracklist uses dotted leaders and CSS counters — no hairlines, no mono numbers.
 
-**Colour:** the chrome is greyscale; `--accent` `#e02b1d` (the vault's red) is only the
-on-air lamp and "on air now". Everything else colourful on the page is **sampled from
+**Color:** the chrome is grayscale; `--accent` `#e02b1d` (the vault's red) is only the
+on-air lamp and "on air now". Everything else colorful on the page is **sampled from
 the sleeve currently on air** — `tint()` averages the image (weighted toward saturated
-pixels, pushed away from grey) and sets `--glow`, which feeds two slow-drifting blurred
+pixels, pushed away from gray) and sets `--glow`, which feeds two slow-drifting blurred
 blobs and the sleeve's shadow. The art is served from this origin, so the canvas read
-is untainted. A near-grey sleeve still yields something; a missing sleeve leaves the
-default grey.
+is untainted. A near-gray sleeve still yields something; a missing sleeve leaves the
+default gray.
 
 Film grain is an inline SVG turbulence, ~4.5% opacity. All motion respects
 `prefers-reduced-motion`.
@@ -233,25 +248,25 @@ dropped from the pool entirely.
 
 ## Licensing and attribution
 
-Last.fm's API terms grant a **non-commercial** licence to copy, publish and distribute
+Last.fm's API terms grant a **non-commercial** license to copy, publish and distribute
 their data, conditional on crediting them. Two things follow, and neither should be
 quietly dropped:
 
 - **"Data from Last.fm" links in every footer.** This is required, not decorative.
-  Clause 2.7 also wants album links pointing at the specific catalogue page, which the
+  Clause 2.7 also wants album links pointing at the specific catalog page, which the
   per-record Last.fm link already does.
 - **No Last.fm logo anywhere, deliberately.** Clause 2.7 demands one of their
   "powered by AudioScrobbler" buttons from `last.fm/resources` — that page is a 404 and
   the branding is long retired, so the clause is unfulfillable as written. Clause 7.1
   requires *prior written approval* for any use of their marks, so plain text is strictly
   safer than a logo. Don't add one.
-- **The licence dies the moment the site earns money.** Ads, a tip jar, anything — that
+- **The license dies the moment the site earns money.** Ads, a tip jar, anything — that
   needs a commercial agreement from `partners@last.fm` first.
 - There is a **100 MB "Reasonable Usage Cap"** on Last.fm data stored or published.
   The repo publishes ~48 MB; `data/.cache` is another ~94 MB locally. The cache is
   disposable — `refresh.sh` refetches what it needs — so prune it if this ever matters.
 
-**Sleeve art is the real exposure, and Last.fm's licence does not cover it.** Labels and
+**Sleeve art is the real exposure, and Last.fm's license does not cover it.** Labels and
 designers own those covers; Last.fm can only license what it holds. The fair-use posture
 is reasonable — non-commercial, editorial, 800px cap, and every entry links out to buy —
 but it rests on staying non-commercial and on being reachable, which is what the

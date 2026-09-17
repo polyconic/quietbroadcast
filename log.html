@@ -150,12 +150,13 @@ h2{font-weight:400;font-style:italic;font-size:18px;color:var(--dim);margin:64px
 
 <script>
 (function(){
-/* The station keeps Chicago time. A block is a Chicago calendar day plus a
-     slot within it, never arithmetic from a fixed instant - that way a local
-     day always holds exactly four slots, including the 23- and 25-hour days
-     when the clocks move. Display dates come straight from the block number,
-     so nothing has to be converted back. */
-  var TZ = "America/Chicago", EPOCH_DAY, PER_DAY;
+/* The station keeps Chicago time, and its cadence comes in eras (SEGMENTS in
+     tools/schedule.py): four slots a day to 17 September, three a day after.
+     A block is a Chicago calendar day plus a slot within it, never arithmetic
+     from a fixed instant, so a local day keeps its full count of slots even on
+     the 23- and 25-hour days when the clocks move. Blocks are numbered straight
+     through the eras, and display dates come from the block number itself. */
+  var TZ = "America/Chicago", SEGS = [];
   var ZP = null;
   function zparts(ms){
     if(!ZP) ZP = new Intl.DateTimeFormat("en-US", {timeZone:TZ, hour12:false,
@@ -167,18 +168,33 @@ h2{font-weight:400;font-style:italic;font-size:18px;color:var(--dim);margin:64px
     if(o.hour === 24) o.hour = 0;
     return o;
   }
-  function blockAt(ms, hours){
-    var p = zparts(ms);
-    var day = (Date.UTC(p.year, p.month-1, p.day) - EPOCH_DAY) / 864e5;
-    return day * (24/hours) + Math.floor(p.hour / hours);
+  function dayOf(iso){ var p = iso.split("-"); return Date.UTC(+p[0], +p[1]-1, +p[2]) }
+  function setEras(sched){
+    var raw = sched.segments || [{from:sched.epoch, hours:sched.hours}];
+    SEGS = [];
+    raw.forEach(function(s){
+      var day = dayOf(s.from), prev = SEGS[SEGS.length-1], first = 0;
+      if(prev) first = prev.first + Math.round((day - prev.day)/864e5) * prev.per;
+      SEGS.push({day:day, hours:s.hours, per:24/s.hours, first:first});
+    });
   }
-  function blockDate(b){ return new Date(EPOCH_DAY + Math.floor(b/PER_DAY)*864e5) }
-  function blockSlot(b){ return ((b % PER_DAY) + PER_DAY) % PER_DAY }
-  function nextBoundary(ms, b, hours){        // binary search; DST-safe by construction
-    var lo = ms, hi = ms + 9*36e5;
+  function eraOfDay(day){ var e = SEGS[0]; SEGS.forEach(function(s){ if(day >= s.day) e = s }); return e }
+  function eraOfBlock(b){ var e = SEGS[0]; SEGS.forEach(function(s){ if(b >= s.first) e = s }); return e }
+  function blockAt(ms){
+    var p = zparts(ms), day = Date.UTC(p.year, p.month-1, p.day), e = eraOfDay(day);
+    return e.first + Math.round((day - e.day)/864e5) * e.per + Math.floor(p.hour / e.hours);
+  }
+  function blockDate(b){ var e = eraOfBlock(b); return new Date(e.day + Math.floor((b - e.first)/e.per)*864e5) }
+  function blockSlot(b){ var e = eraOfBlock(b); return ((b - e.first) % e.per + e.per) % e.per }
+  function slotName(b){
+    var e = eraOfBlock(b), i = blockSlot(b);
+    return e.per === 3 ? THREE[i] : period(i * e.hours);
+  }
+  function nextBoundary(ms, b){        // binary search; DST-safe by construction
+    var lo = ms, hi = ms + 12*36e5;
     for(var i=0;i<44;i++){
       var mid = (lo + hi) / 2;
-      if(blockAt(mid, hours) > b) hi = mid; else lo = mid;
+      if(blockAt(mid) > b) hi = mid; else lo = mid;
     }
     return hi;
   }
@@ -198,6 +214,7 @@ h2{font-weight:400;font-style:italic;font-size:18px;color:var(--dim);margin:64px
 
   var TOUCH = window.matchMedia ? matchMedia("(hover:none)").matches : "ontouchstart" in window;
   function period(h){ return h<6 ? "small hours" : h<12 ? "morning" : h<18 ? "afternoon" : "evening" }
+  var THREE = ["overnight", "daytime", "evening"];
   function join(list){
     if(list.length < 2) return list.join("");
     return list.slice(0,-1).join(", ") + " and " + list[list.length-1];
@@ -209,26 +226,25 @@ h2{font-weight:400;font-style:italic;font-size:18px;color:var(--dim);margin:64px
       if(!r.ok) throw new Error("schedule.json missing - run tools/schedule.py");
       return r.json();
     }),
-    /* Who sits near whom comes from listening behaviour, not tags. If the file
+    /* Who sits near whom comes from listening behavior, not tags. If the file
        isn't there the graph simply draws no lines rather than inventing them. */
     fetch("data/similar.json").then(function(r){ return r.ok ? r.json() : {} })
                               .catch(function(){ return {} })
   ]).then(function(both){
     var sched = both[0];
     SIMILAR = both[1] || {};
-    var ep = sched.epoch.split("-");
-    EPOCH_DAY = Date.UTC(+ep[0], +ep[1]-1, +ep[2]);
-    PER_DAY = 24 / sched.hours;
     if(sched.tz) TZ = sched.tz;
+    setEras(sched);
     var n = sched.records.length;
 
-    var now = blockAt(Date.now(), sched.hours);
+    var now = blockAt(Date.now());
     var q = location.search.match(/[?&]preview=(-?\d+)/);
     if(q) now = parseInt(q[1],10);
-    now = Math.max(0, Math.min(now, sched.slots.length-1));
+    now = Math.max(0, now);
 
     var aired = [];
-    for(var b=0; b<=now; b++) aired.push({block:b, rec: sched.records[ sched.slots[b] ]});
+    for(var b=0; b<=now; b++)
+      aired.push({block:b, rec: sched.records[ sched.slots[b % sched.slots.length] ]});
 
     var artists = {}, tags = {}, secs = 0, lens = [];
     aired.forEach(function(a){
@@ -239,7 +255,7 @@ h2{font-weight:400;font-style:italic;font-size:18px;color:var(--dim);margin:64px
       if(r.secs) lens.push(r.secs);
     });
     var artistNames = Object.keys(artists);
-    var since = new Date(EPOCH_DAY).toLocaleDateString("en-GB",{day:"numeric",month:"long",timeZone:"UTC"});
+    var since = new Date(SEGS[0].day).toLocaleDateString("en-GB",{day:"numeric",month:"long",timeZone:"UTC"});
     var hours = Math.round(secs/3600);
 
     document.getElementById("stats").innerHTML =
@@ -275,7 +291,7 @@ h2{font-weight:400;font-style:italic;font-size:18px;color:var(--dim);margin:64px
       var d = blockDate(a.block);
       var key = d.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",timeZone:"UTC"});
       if(!byDay[key]){ byDay[key]=[]; days.push(key) }
-      byDay[key].push({a:a, p:period(blockSlot(a.block) * sched.hours)});
+      byDay[key].push({a:a, p:slotName(a.block)});
     });
     var journal = days.map(function(k){
       return '<div class="day"><h3>'+esc(k)+'</h3>'+ byDay[k].map(function(e){

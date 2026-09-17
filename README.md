@@ -1,6 +1,6 @@
 # QuietBroadcast
 
-One record showcased every six hours. The same record for everyone, chosen by the clock.
+Three records a day, one every eight hours. The same record for everyone, chosen by the clock.
 
 No player and no algorithm. Each slot shows one release — the
 artist, the tracklist, and how long it runs.

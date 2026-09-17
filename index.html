@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>QuietBroadcast — one record every six hours</title>
-<meta name="description" content="A record every six hours, the same one for everyone, chosen by the clock. Electronic music worth hearing, without a player, an algorithm or an account.">
+<title>QuietBroadcast — three records a day</title>
+<meta name="description" content="Three records a day, the same for everyone, chosen by the clock. Electronic music worth hearing, without a player, an algorithm or an account.">
 <link rel="canonical" href="https://quietbroadcast.com/">
 <meta name="robots" content="index, follow, max-image-preview:large">
 <meta name="author" content="Gregor Egan">
@@ -19,8 +19,8 @@
 
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="QuietBroadcast">
-<meta property="og:title" content="QuietBroadcast — one record every six hours">
-<meta property="og:description" content="A record every six hours, the same one for everyone, chosen by the clock. Electronic music worth hearing, without a player, an algorithm or an account.">
+<meta property="og:title" content="QuietBroadcast — three records a day">
+<meta property="og:description" content="Three records a day, the same for everyone, chosen by the clock. Electronic music worth hearing, without a player, an algorithm or an account.">
 <meta property="og:url" content="https://quietbroadcast.com/">
 <meta property="og:image" content="https://quietbroadcast.com/assets/og.png">
 <meta property="og:image:width" content="978">
@@ -29,8 +29,8 @@
 <meta property="og:locale" content="en_US">
 
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="QuietBroadcast — one record every six hours">
-<meta name="twitter:description" content="A record every six hours, the same one for everyone, chosen by the clock. Electronic music worth hearing, without a player, an algorithm or an account.">
+<meta name="twitter:title" content="QuietBroadcast — three records a day">
+<meta name="twitter:description" content="Three records a day, the same for everyone, chosen by the clock. Electronic music worth hearing, without a player, an algorithm or an account.">
 <meta name="twitter:image" content="https://quietbroadcast.com/assets/og.png">
 <meta name="twitter:image:alt" content="QuietBroadcast">
 
@@ -40,7 +40,7 @@
   "@type": "WebSite",
   "name": "QuietBroadcast",
   "url": "https://quietbroadcast.com/",
-  "description": "A record every six hours, the same one for everyone, chosen by the clock.",
+  "description": "Three records a day, the same for everyone, chosen by the clock.",
   "inLanguage": "en",
   "author": { "@type": "Person", "name": "Gregor Egan" }
 }
@@ -66,7 +66,7 @@ body{
   -webkit-font-smoothing:antialiased;
 }
 
-/* the room takes its colour from whatever is on air, and it drifts */
+/* the room takes its color from whatever is on air, and it drifts */
 .ambient{position:absolute; inset:0; pointer-events:none; z-index:0; overflow:hidden}
 .ambient i{position:absolute; border-radius:50%; filter:blur(70px); opacity:.42;
   background:rgb(var(--glow)); transition:background 2s ease}
@@ -198,12 +198,13 @@ footer button:hover{color:var(--fg)}
 <script>
 (function(){
 
-/* The station keeps Chicago time. A block is a Chicago calendar day plus a
-     slot within it, never arithmetic from a fixed instant - that way a local
-     day always holds exactly four slots, including the 23- and 25-hour days
-     when the clocks move. Display dates come straight from the block number,
-     so nothing has to be converted back. */
-  var TZ = "America/Chicago", EPOCH_DAY, PER_DAY;
+/* The station keeps Chicago time, and its cadence comes in eras (SEGMENTS in
+     tools/schedule.py): four slots a day to 17 September, three a day after.
+     A block is a Chicago calendar day plus a slot within it, never arithmetic
+     from a fixed instant, so a local day keeps its full count of slots even on
+     the 23- and 25-hour days when the clocks move. Blocks are numbered straight
+     through the eras, and display dates come from the block number itself. */
+  var TZ = "America/Chicago", SEGS = [];
   var ZP = null;
   function zparts(ms){
     if(!ZP) ZP = new Intl.DateTimeFormat("en-US", {timeZone:TZ, hour12:false,
@@ -215,18 +216,33 @@ footer button:hover{color:var(--fg)}
     if(o.hour === 24) o.hour = 0;
     return o;
   }
-  function blockAt(ms, hours){
-    var p = zparts(ms);
-    var day = (Date.UTC(p.year, p.month-1, p.day) - EPOCH_DAY) / 864e5;
-    return day * (24/hours) + Math.floor(p.hour / hours);
+  function dayOf(iso){ var p = iso.split("-"); return Date.UTC(+p[0], +p[1]-1, +p[2]) }
+  function setEras(sched){
+    var raw = sched.segments || [{from:sched.epoch, hours:sched.hours}];
+    SEGS = [];
+    raw.forEach(function(s){
+      var day = dayOf(s.from), prev = SEGS[SEGS.length-1], first = 0;
+      if(prev) first = prev.first + Math.round((day - prev.day)/864e5) * prev.per;
+      SEGS.push({day:day, hours:s.hours, per:24/s.hours, first:first});
+    });
   }
-  function blockDate(b){ return new Date(EPOCH_DAY + Math.floor(b/PER_DAY)*864e5) }
-  function blockSlot(b){ return ((b % PER_DAY) + PER_DAY) % PER_DAY }
-  function nextBoundary(ms, b, hours){        // binary search; DST-safe by construction
-    var lo = ms, hi = ms + 9*36e5;
+  function eraOfDay(day){ var e = SEGS[0]; SEGS.forEach(function(s){ if(day >= s.day) e = s }); return e }
+  function eraOfBlock(b){ var e = SEGS[0]; SEGS.forEach(function(s){ if(b >= s.first) e = s }); return e }
+  function blockAt(ms){
+    var p = zparts(ms), day = Date.UTC(p.year, p.month-1, p.day), e = eraOfDay(day);
+    return e.first + Math.round((day - e.day)/864e5) * e.per + Math.floor(p.hour / e.hours);
+  }
+  function blockDate(b){ var e = eraOfBlock(b); return new Date(e.day + Math.floor((b - e.first)/e.per)*864e5) }
+  function blockSlot(b){ var e = eraOfBlock(b); return ((b - e.first) % e.per + e.per) % e.per }
+  function slotName(b){
+    var e = eraOfBlock(b), i = blockSlot(b);
+    return e.per === 3 ? THREE[i] : period(i * e.hours);
+  }
+  function nextBoundary(ms, b){        // binary search; DST-safe by construction
+    var lo = ms, hi = ms + 12*36e5;
     for(var i=0;i<44;i++){
       var mid = (lo + hi) / 2;
-      if(blockAt(mid, hours) > b) hi = mid; else lo = mid;
+      if(blockAt(mid) > b) hi = mid; else lo = mid;
     }
     return hi;
   }
@@ -246,12 +262,13 @@ footer button:hover{color:var(--fg)}
   function period(h){
     return h < 6 ? "in the small hours" : h < 12 ? "morning" : h < 18 ? "afternoon" : "evening";
   }
+  var THREE = ["overnight", "during the day", "evening"];
   function join(list){
     if(list.length < 2) return list.join("");
     return list.slice(0,-1).join(", ") + " and " + list[list.length-1];
   }
 
-  /* Average the sleeve, push it away from grey, and let the room wear it.
+  /* Average the sleeve, push it away from gray, and let the room wear it.
      The art is served from this origin so the canvas stays untainted. */
   function tint(img){
     try{
@@ -279,24 +296,22 @@ footer button:hover{color:var(--fg)}
     if(!r.ok) throw new Error("schedule.json missing - run tools/schedule.py");
     return r.json();
   }).then(function(sched){
-    var ep = sched.epoch.split("-");
-    EPOCH_DAY = Date.UTC(+ep[0], +ep[1]-1, +ep[2]);
-    PER_DAY = 24 / sched.hours;
     if(sched.tz) TZ = sched.tz;
+    setEras(sched);
 
-    var block = blockAt(Date.now(), sched.hours);
+    var block = blockAt(Date.now());
     var q = location.search.match(/[?&]preview=(-?\d+)/);
     var live = !q;
     if(q) block = parseInt(q[1],10);
     if(block < 0) block = 0;
-    if(block >= sched.slots.length) throw new Error("the schedule has run out - run tools/schedule.py");
 
-    var rec = sched.records[ sched.slots[block] ];
+    // Past the written schedule the station replays it rather than going dark.
+    var rec = sched.records[ sched.slots[block % sched.slots.length] ];
     var when = blockDate(block);
     var weekday = when.toLocaleDateString("en-GB",{weekday:"long", timeZone:"UTC"});
     var date = when.toLocaleDateString("en-GB",{day:"numeric", month:"long", timeZone:"UTC"});
-    var p = period(blockSlot(block) * sched.hours);
-    var whenLine = p.indexOf("in the") === 0 ? weekday+", "+p : weekday+" "+p;
+    var p = slotName(block);
+    var whenLine = /^(in|during) /.test(p) ? weekday+", "+p : weekday+" "+p;
     whenLine += ", " + date;
 
     var about = [];
@@ -342,7 +357,7 @@ footer button:hover{color:var(--fg)}
       img.onerror = function(){ document.getElementById("sleeve").classList.add("none") };
     }
 
-    var boundary = nextBoundary(Date.now(), block, sched.hours);
+    var boundary = nextBoundary(Date.now(), block);
     function tick(){
       var ms = boundary - Date.now();
       var el = document.getElementById("next");

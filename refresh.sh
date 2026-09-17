@@ -8,7 +8,7 @@
 # future is rebuilt, and new records join the queue of things not yet played.
 # Nothing is published until you commit and push.
 #
-# The schedule runs 180 days ahead. Run this every month or two and records
+# The schedule runs 180 days ahead, three records a day. Run this every month or two and records
 # trickle in; leave it and the station eventually starts repeating itself,
 # which is the quiet failure mode - it never breaks, it just goes stale.
 
@@ -72,9 +72,13 @@ echo "────────────────────────�
 python3 - <<'PY'
 import json, subprocess
 d = json.load(open("data/schedule.json"))
-per_day = 24 // d["hours"]
-print("  %d records in the pool, %d days scheduled ahead"
-      % (len(d["records"]), len(d["slots"]) // per_day))
+import sys
+sys.path.insert(0, "tools")
+from schedule import now_block, SEGMENTS
+ahead = len(d["slots"]) - 1 - now_block(SEGMENTS)
+per_day = 24 // SEGMENTS[-1][1]
+print("  %d records in the pool, %d days scheduled ahead, a full rotation every %d days"
+      % (len(d["records"]), ahead // per_day, len(d["records"]) // per_day))
 diff = subprocess.run(["git", "diff", "--stat", "--", "data/", "art/"],
                       capture_output=True, text=True).stdout.strip()
 print("  " + (diff.splitlines()[-1].strip() if diff else "no files changed"))

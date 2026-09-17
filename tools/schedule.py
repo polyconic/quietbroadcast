@@ -8,7 +8,7 @@
 adds to the pool without disturbing a single slot that has already aired.
 """
 import argparse, json, os, random, re, sys, time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -134,7 +134,13 @@ def trim_famous(pool, pct, hard):
           % (pct * 100, format(hard, ",")))
     print("  %d of %d records survive" % (len(out), len(pool)))
     return out
-HOURS = 6
+# The cadence is a list of eras, never a single number. Slots are numbered
+# continuously across them, so changing the cadence appends an era from a future
+# Chicago midnight instead of renumbering everything that has already aired.
+SEGMENTS = [
+    ("2026-09-10", 6),   # four a day
+    ("2026-09-18", 8),   # three a day
+]
 
 FIELDS = ("artist", "release", "tags", "tracks", "secs", "url", "plays")
 
@@ -149,7 +155,9 @@ EDITION = re.compile(r"\s*[\(\[][^)\]]*"
 
 
 def base_title(t):
-    return re.sub(r"[^a-z0-9]+", "", EDITION.sub("", t).lower())
+    # "The Temple of I & I" and "Temple of I & I" are one record in two editions
+    t = re.sub(r"^(the|a|an)\s+", "", EDITION.sub("", t).strip(), flags=re.I)
+    return re.sub(r"[^a-z0-9]+", "", t.lower())
 
 
 def clean(pool, max_minutes):
@@ -187,12 +195,33 @@ def clean(pool, max_minutes):
     return deduped
 
 
-def now_block(epoch, hours):
+def segment_table(segments):
+    """(start date, hours, first block) for each era."""
+    out = []
+    for i, (start, hours) in enumerate(segments):
+        d = date.fromisoformat(start)
+        first = 0
+        if out:
+            pd, ph, pf = out[-1]
+            first = pf + (d - pd).days * (24 // ph)
+        out.append((d, hours, first))
+    return out
+
+
+def block_at(day, hour, segments):
     """Blocks are anchored to Chicago wall-clock time, so each local day holds
     exactly 24/hours slots whether or not the clocks moved that morning."""
+    seg = segment_table(segments)
+    d0, h, first = seg[0]
+    for s in seg:
+        if day >= s[0]:
+            d0, h, first = s
+    return first + (day - d0).days * (24 // h) + hour // h
+
+
+def now_block(segments):
     now = datetime.now(ZoneInfo(STATION_TZ))
-    days = (now.date() - date.fromisoformat(epoch)).days
-    return days * (24 // hours) + now.hour // hours
+    return block_at(now.date(), now.hour, segments)
 
 
 def main():
@@ -283,7 +312,7 @@ def main():
     if os.path.exists(SCHED):
         sched = json.load(open(SCHED))
     else:
-        sched = {"epoch": EPOCH, "hours": HOURS, "tz": STATION_TZ, "records": [], "slots": []}
+        sched = {"epoch": SEGMENTS[0][0], "tz": STATION_TZ, "records": [], "slots": []}
 
     ov_path = os.path.join(DATA, "tag_overrides.json")
     overrides = json.load(open(ov_path)) if os.path.exists(ov_path) else {}
@@ -320,14 +349,23 @@ def main():
             added += 1
     live = set(index[key(r)] for r in pool)
 
-    cur = now_block(sched["epoch"], sched["hours"])
+    # a new era may only start at a midnight that hasn't happened yet
+    today = datetime.now(ZoneInfo(STATION_TZ)).date()
+    known = {x["from"] for x in (sched.get("segments") or [])}
+    for d, _ in SEGMENTS[1:]:
+        if d not in known and date.fromisoformat(d) <= today:
+            sys.exit("Segment %s starts today or earlier - that would renumber slots "
+                     "that may already have aired. Pick a future date." % d)
+
+    cur = now_block(SEGMENTS)
     frozen = sched["slots"][: max(0, cur + 1)]
     if len(frozen) < len(sched["slots"]):
         print("  freezing %d aired slots, rebuilding %d future ones"
               % (len(frozen), len(sched["slots"]) - len(frozen)))
 
-    per_day = 24 // sched["hours"]
-    horizon = cur + 1 + a.horizon * per_day
+    per_day = 24 // SEGMENTS[-1][1]
+    end_day = datetime.now(ZoneInfo(STATION_TZ)).date() + timedelta(days=a.horizon)
+    horizon = max(cur + 1, block_at(end_day, 0, SEGMENTS))
 
     # Records that have never aired go first; when that runs out the whole live
     # pool reshuffles, so everything airs once before anything repeats.
@@ -345,6 +383,9 @@ def main():
         slots.append(queue.pop())
 
     sched["tz"] = STATION_TZ
+    sched["epoch"] = SEGMENTS[0][0]
+    sched["segments"] = [{"from": d, "hours": h} for d, h in SEGMENTS]
+    sched["hours"] = SEGMENTS[-1][1]      # current cadence, for anything reading one number
     sched["records"] = records
     sched["slots"] = slots
     json.dump(sched, open(SCHED, "w"), ensure_ascii=False, separators=(",", ":"))

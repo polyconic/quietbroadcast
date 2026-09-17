@@ -151,7 +151,7 @@ def artist_tags(rows):
 
 
 def similar_artists(rows):
-    """Who actually sits near whom, from listening behaviour rather than tags.
+    """Who actually sits near whom, from listening behavior rather than tags.
     Tag overlap is worthless here - nearly everything in the pool is tagged
     electronic, so it linked artists with nothing to do with each other."""
     os.makedirs(CACHE, exist_ok=True)
