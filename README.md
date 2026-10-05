@@ -1,6 +1,6 @@
 # QuietBroadcast
 
-Three records a day, one every eight hours. The same record for everyone, chosen by the clock.
+Two records a day, one at midnight and one at noon, Chicago time. The same record for everyone, chosen by the clock.
 
 No player and no algorithm. Each slot shows one release — the
 artist, the tracklist, and how long it runs.

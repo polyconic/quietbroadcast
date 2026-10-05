@@ -1,6 +1,6 @@
 # QuietBroadcast
 
-Three records a day, drawn from Gregor's Last.fm library. Static HTML, no
+Two records a day, drawn from Gregor's Last.fm library. Static HTML, no
 build step, no dependencies, no tracking. `README.md` is the public face — keep it
 short. This file is the working document.
 
@@ -20,16 +20,20 @@ The cadence comes in **eras**, listed as `SEGMENTS` in `tools/schedule.py` and w
 into `schedule.json` as `segments`:
 
 ```
-2026-09-10  6h   four a day   (blocks 0–31)
-2026-09-18  8h   three a day  (block 32 onward: 00:00, 08:00, 16:00)
+2026-10-05  12h  two a day    (00:00 and 12:00)
 ```
+
+**The station restarted from scratch on 2026-10-05**, at Gregor's request: fresh pull,
+empty `records`, new epoch, day 1. It had run since 2026-09-10 at four and then three a
+day; none of that history carries over. `schedule.py` refuses to run if `schedule.json`
+starts on a different date from `SEGMENTS`, so a restart means deleting
+`schedule.json` on purpose, never editing the first era in place.
 
 Blocks are numbered straight through the eras, and `record = records[slots[block]]`.
 **To change the cadence, append an era starting at a future Chicago midnight — never
 edit an existing one.** Changing a number in place renumbers every slot that has
 already aired: the Log would put records on the wrong days and the live record would
 jump mid-slot. `schedule.py` refuses a new era dated today or earlier for that reason.
-The switch to three a day was checked by comparing every aired slot before and after.
 
 **Station time is Chicago**, and a block is a Chicago calendar day plus a slot within
 it — deliberately *not* arithmetic from a fixed instant. That way a local day keeps its
@@ -40,7 +44,9 @@ pages read it from there. `tools/schedule.py` uses `zoneinfo` and the pages use
 number** or frozen slots land wrong. Display dates derive from the block number itself,
 so nothing converts back. The countdown binary-searches the next boundary rather than
 adding a fixed number of hours, which is what makes it correct across a DST change and
-across an era change.
+across an era change. **The search window must exceed the longest slot**: it is 14 hours,
+because a 12-hour slot runs 13 real hours on the night the clocks go back. At 12 hours it
+would miss that boundary.
 
 **Past the end of the written schedule the pages replay it** (`slots[block % length]`)
 rather than erroring. Before this they threw "the schedule has run out", so a long gap
@@ -215,12 +221,16 @@ monospace caps, pills, bordered buttons, stat tiles and bar charts. So:
 - **System serif** for nearly everything (`--serif`: Iowan Old Style / Palatino /
   Georgia — nothing is fetched). Sans only for artist names and durations.
 - **Prose where there were labels.** "Four tracks, twenty-two minutes — techno, dub
-  techno." Small numbers are spelled out (`words()`). The countdown is a sentence
-  that updates every 30s, not a ticking clock.
-- **Slots are named**, not numbered. Three a day: *overnight* (00:00), *during the
-  day* (08:00, "daytime" in the Log's journal), *evening* (16:00). The four-a-day era
-  keeps its own names — *in the small hours*, *morning*, *afternoon*, *evening* — so the
-  Log's older days still read correctly. `slotName()` picks by era. Chicago time.
+  techno." Small numbers are spelled out (`words()`).
+- **The running clock**, asked for "just like Delilah's Vault": both mastheads show
+  station time to the second and a day count from the epoch (`16:34:16 · day 1`), and the
+  footer countdown ticks every second ("The next record arrives in 7:25:44.") with a
+  hairline over the footer rule showing how far through the slot it is. Digits are sans
+  with `tabular-nums` so they don't jitter. Under 560px the clock drops to its own line.
+  The tick is aligned to the system second so it doesn't drift against it.
+- **Slots are named**, not numbered: *from midnight* (00:00) and *from noon* (12:00),
+  "Monday, from noon, 5 October". `slotName()` picks by era and falls back to
+  `period()` for any other cadence. Chicago time.
 - The log's stats are a paragraph, tags are a weighted type cloud, recent slots are
   a journal grouped by day. No tiles, no bars.
 - Tracklist uses dotted leaders and CSS counters — no hairlines, no mono numbers.

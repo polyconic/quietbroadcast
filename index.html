@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>QuietBroadcast — three records a day</title>
-<meta name="description" content="Three records a day, the same for everyone, chosen by the clock. Electronic music worth hearing, without a player, an algorithm or an account.">
+<title>QuietBroadcast — two records a day</title>
+<meta name="description" content="Two records a day, the same for everyone, chosen by the clock. Electronic music worth hearing, without a player, an algorithm or an account.">
 <link rel="canonical" href="https://quietbroadcast.com/">
 <meta name="robots" content="index, follow, max-image-preview:large">
 <meta name="author" content="Gregor Egan">
@@ -19,8 +19,8 @@
 
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="QuietBroadcast">
-<meta property="og:title" content="QuietBroadcast — three records a day">
-<meta property="og:description" content="Three records a day, the same for everyone, chosen by the clock. Electronic music worth hearing, without a player, an algorithm or an account.">
+<meta property="og:title" content="QuietBroadcast — two records a day">
+<meta property="og:description" content="Two records a day, the same for everyone, chosen by the clock. Electronic music worth hearing, without a player, an algorithm or an account.">
 <meta property="og:url" content="https://quietbroadcast.com/">
 <meta property="og:image" content="https://quietbroadcast.com/assets/og.png">
 <meta property="og:image:width" content="978">
@@ -29,8 +29,8 @@
 <meta property="og:locale" content="en_US">
 
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="QuietBroadcast — three records a day">
-<meta name="twitter:description" content="Three records a day, the same for everyone, chosen by the clock. Electronic music worth hearing, without a player, an algorithm or an account.">
+<meta name="twitter:title" content="QuietBroadcast — two records a day">
+<meta name="twitter:description" content="Two records a day, the same for everyone, chosen by the clock. Electronic music worth hearing, without a player, an algorithm or an account.">
 <meta name="twitter:image" content="https://quietbroadcast.com/assets/og.png">
 <meta name="twitter:image:alt" content="QuietBroadcast">
 
@@ -40,7 +40,7 @@
   "@type": "WebSite",
   "name": "QuietBroadcast",
   "url": "https://quietbroadcast.com/",
-  "description": "Three records a day, the same for everyone, chosen by the clock.",
+  "description": "Two records a day, the same for everyone, chosen by the clock.",
   "inLanguage": "en",
   "author": { "@type": "Person", "name": "Gregor Egan" }
 }
@@ -113,6 +113,15 @@ body{
 .top .name{color:var(--fg)}
 .top a{color:var(--dim); text-decoration:none; font-style:italic; transition:color .2s}
 .top a:hover{color:var(--fg)}
+/* the running clock: station time to the second, and the day count */
+.clock{font-family:var(--sans); font-size:13px; letter-spacing:.02em; color:var(--faint);
+  font-variant-numeric:tabular-nums; white-space:nowrap}
+.clock #clock{color:var(--dim)}
+.clock .dot{margin:0 .6em; opacity:.6}
+@media(max-width:560px){
+  .top{flex-wrap:wrap; row-gap:4px}
+  .clock{order:3; flex-basis:100%; padding-left:17px}
+}
 .lamp{display:inline-block; width:7px; height:7px; border-radius:50%;
   background:var(--accent); margin-right:10px; vertical-align:2px;
   animation:pulse 3.6s ease-in-out infinite}
@@ -157,7 +166,7 @@ main{flex:1; display:grid; grid-template-columns:minmax(0,360px) minmax(0,1fr);
 .find a:hover{text-decoration-color:var(--fg)}
 
 footer{border-top:1px solid var(--line); padding:16px 0 30px; font-size:15px;
-  color:var(--dim); display:flex; justify-content:space-between; gap:16px;
+  color:var(--dim); position:relative; display:flex; justify-content:space-between; gap:16px;
   flex-wrap:wrap; align-items:baseline; font-style:italic}
 /* inline, not flex - a flex row wraps mid-phrase on narrow screens and turns
    into a ragged grid instead of a sentence */
@@ -170,6 +179,10 @@ footer button{font:inherit; color:var(--faint); background:none; border:0; paddi
   cursor:pointer; transition:color .2s; font-style:normal}
 footer button:hover{color:var(--fg)}
 .err{color:var(--accent); font-family:var(--sans); font-size:13px}
+/* how far through the slot we are, drawn over the footer rule */
+.progress{position:absolute; left:0; top:-1px; height:1px; width:0; background:var(--dim)}
+#next .n{font-family:var(--sans); font-style:normal; font-size:14px; color:var(--fg);
+  font-variant-numeric:tabular-nums; letter-spacing:.02em}
 
 @media(max-width:860px){
   main{grid-template-columns:1fr; gap:34px; align-items:start; padding:28px 0 36px}
@@ -185,10 +198,12 @@ footer button:hover{color:var(--fg)}
 <div class="wrap">
   <div class="top">
     <span><span class="lamp"></span><span class="name">QuietBroadcast</span></span>
+    <span class="clock" title="Station time, Chicago"><span id="clock">--:--:--</span><span class="dot">·</span><span id="dayNo">day 1</span></span>
     <span><a href="log.html">the Log</a></span>
   </div>
   <main id="card"></main>
   <footer>
+    <i class="progress" id="progress"></i>
     <span id="next"></span>
     <span class="colophon"><a href="https://www.last.fm" target="_blank" rel="noopener noreferrer">Data from Last.fm</a><span class="dot">·</span><span class="rights">Artwork belongs to its labels and artists</span><span class="dot">·</span><a href="mailto:gregor.art@pm.me">Contact</a></span>
     <button id="theme" type="button">light</button>
@@ -199,7 +214,7 @@ footer button:hover{color:var(--fg)}
 (function(){
 
 /* The station keeps Chicago time, and its cadence comes in eras (SEGMENTS in
-     tools/schedule.py): four slots a day to 17 September, three a day after.
+     tools/schedule.py). It restarted on 5 October 2026 at two slots a day.
      A block is a Chicago calendar day plus a slot within it, never arithmetic
      from a fixed instant, so a local day keeps its full count of slots even on
      the 23- and 25-hour days when the clocks move. Blocks are numbered straight
@@ -208,7 +223,8 @@ footer button:hover{color:var(--fg)}
   var ZP = null;
   function zparts(ms){
     if(!ZP) ZP = new Intl.DateTimeFormat("en-US", {timeZone:TZ, hour12:false,
-      year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit"});
+      year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit",
+      minute:"2-digit", second:"2-digit"});
     var o = {};
     ZP.formatToParts(new Date(ms)).forEach(function(p){
       if(p.type !== "literal") o[p.type] = parseInt(p.value,10);
@@ -236,15 +252,32 @@ footer button:hover{color:var(--fg)}
   function blockSlot(b){ var e = eraOfBlock(b); return ((b - e.first) % e.per + e.per) % e.per }
   function slotName(b){
     var e = eraOfBlock(b), i = blockSlot(b);
-    return e.per === 3 ? THREE[i] : period(i * e.hours);
+    return e.per === 2 ? TWO[i] : period(i * e.hours);
   }
-  function nextBoundary(ms, b){        // binary search; DST-safe by construction
-    var lo = ms, hi = ms + 12*36e5;
+  /* Binary searches, DST-safe by construction. The window is 14 hours because a
+     12-hour slot runs 13 real hours on the night the clocks go back. */
+  function nextBoundary(ms, b){
+    var lo = ms, hi = ms + 14*36e5;
     for(var i=0;i<44;i++){
       var mid = (lo + hi) / 2;
       if(blockAt(mid) > b) hi = mid; else lo = mid;
     }
     return hi;
+  }
+  function slotStart(ms, b){
+    var lo = ms - 14*36e5, hi = ms;
+    for(var i=0;i<44;i++){
+      var mid = (lo + hi) / 2;
+      if(blockAt(mid) >= b) hi = mid; else lo = mid;
+    }
+    return hi;
+  }
+  function pad(n){ return (n<10?"0":"")+n }
+  function runClock(){
+    var p = zparts(Date.now());
+    var day = Math.round((Date.UTC(p.year, p.month-1, p.day) - SEGS[0].day)/864e5) + 1;
+    document.getElementById("clock").textContent = pad(p.hour)+":"+pad(p.minute)+":"+pad(p.second);
+    document.getElementById("dayNo").textContent = "day " + Math.max(1, day);
   }
 
   function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,function(c){
@@ -262,7 +295,7 @@ footer button:hover{color:var(--fg)}
   function period(h){
     return h < 6 ? "in the small hours" : h < 12 ? "morning" : h < 18 ? "afternoon" : "evening";
   }
-  var THREE = ["overnight", "during the day", "evening"];
+  var TWO = ["from midnight", "from noon"];
   function join(list){
     if(list.length < 2) return list.join("");
     return list.slice(0,-1).join(", ") + " and " + list[list.length-1];
@@ -311,7 +344,7 @@ footer button:hover{color:var(--fg)}
     var weekday = when.toLocaleDateString("en-GB",{weekday:"long", timeZone:"UTC"});
     var date = when.toLocaleDateString("en-GB",{day:"numeric", month:"long", timeZone:"UTC"});
     var p = slotName(block);
-    var whenLine = /^(in|during) /.test(p) ? weekday+", "+p : weekday+" "+p;
+    var whenLine = /^(in|during|from) /.test(p) ? weekday+", "+p : weekday+" "+p;
     whenLine += ", " + date;
 
     var about = [];
@@ -357,24 +390,21 @@ footer button:hover{color:var(--fg)}
       img.onerror = function(){ document.getElementById("sleeve").classList.add("none") };
     }
 
-    var boundary = nextBoundary(Date.now(), block);
+    var start = slotStart(Date.now(), block), boundary = nextBoundary(Date.now(), block);
+    var el = document.getElementById("next"), bar = document.getElementById("progress");
     function tick(){
-      var ms = boundary - Date.now();
-      var el = document.getElementById("next");
-      if(ms <= 0){
-        if(live){ location.reload(); return }
-        el.textContent = "A preview of slot "+block+".";
-        return;
-      }
-      var mins = Math.round(ms/6e4), hrs = Math.round(ms/36e5);
-      var txt;
-      if(mins < 2) txt = "The next record is about to arrive.";
-      else if(mins < 60) txt = "The next record arrives in "+words(mins)+" minutes.";
-      else if(hrs === 1) txt = "The next record arrives in about an hour.";
-      else txt = "The next record arrives in about "+words(hrs)+" hours.";
-      el.textContent = txt;
+      runClock();
+      if(!live){ el.textContent = "A preview of slot "+block+"."; return }
+      var now = Date.now(), ms = boundary - now;
+      if(ms <= 0){ location.reload(); return }
+      var s = Math.ceil(ms/1000);
+      bar.style.width = ((now - start)/(boundary - start)*100).toFixed(3)+"%";
+      el.innerHTML = 'The next record arrives in <span class="n">'+
+        Math.floor(s/3600)+":"+pad(Math.floor(s/60)%60)+":"+pad(s%60)+'</span>.';
     }
-    tick(); setInterval(tick,30000);
+    tick();
+    // land on the second boundary so the clock doesn't drift against the system one
+    setTimeout(function(){ tick(); setInterval(tick, 1000) }, 1000 - Date.now()%1000);
   }).catch(function(e){
     document.getElementById("card").innerHTML = '<p class="err">'+esc(e.message)+'</p>';
   });

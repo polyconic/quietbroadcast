@@ -15,7 +15,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA = os.path.join(HERE, "data")
 SCHED = os.path.join(DATA, "schedule.json")
 POOL = os.path.join(DATA, "albums.json")
-EPOCH = "2026-09-10"
+EPOCH = "2026-10-05"
 STATION_TZ = "America/Chicago"
 
 # Your own records stay off the station.
@@ -137,9 +137,9 @@ def trim_famous(pool, pct, hard):
 # The cadence is a list of eras, never a single number. Slots are numbered
 # continuously across them, so changing the cadence appends an era from a future
 # Chicago midnight instead of renumbering everything that has already aired.
+# The station restarted from scratch on 2026-10-05; the first era is that day.
 SEGMENTS = [
-    ("2026-09-10", 6),   # four a day
-    ("2026-09-18", 8),   # three a day
+    ("2026-10-05", 12),  # two a day
 ]
 
 FIELDS = ("artist", "release", "tags", "tracks", "secs", "url", "plays")
@@ -311,6 +311,10 @@ def main():
 
     if os.path.exists(SCHED):
         sched = json.load(open(SCHED))
+        if sched.get("epoch") != SEGMENTS[0][0]:
+            sys.exit("schedule.json starts %s but SEGMENTS starts %s. Its slots would land "
+                     "on the wrong days. To restart the station, delete schedule.json."
+                     % (sched.get("epoch"), SEGMENTS[0][0]))
     else:
         sched = {"epoch": SEGMENTS[0][0], "tz": STATION_TZ, "records": [], "slots": []}
 
@@ -371,7 +375,7 @@ def main():
     # pool reshuffles, so everything airs once before anything repeats.
     ever = set(frozen)
     unaired = [i for i in live if i not in ever]
-    rnd = random.Random(20260901 + len(frozen))
+    rnd = random.Random(20261005 + len(frozen))
     rnd.shuffle(unaired)
 
     slots = list(frozen)

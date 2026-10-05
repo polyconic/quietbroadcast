@@ -8,9 +8,9 @@
 # future is rebuilt, and new records join the queue of things not yet played.
 # Nothing is published until you commit and push.
 #
-# The schedule runs 180 days ahead, three records a day. Run this every month or two and records
-# trickle in; leave it and the station eventually starts repeating itself,
-# which is the quiet failure mode - it never breaks, it just goes stale.
+# The schedule runs 180 days ahead, two records a day. Run this every month or two
+# and records trickle in; leave it and the station replays its schedule, which is
+# the quiet failure mode - it never breaks, it just goes stale.
 
 set -euo pipefail
 cd "$(dirname "$0")"
