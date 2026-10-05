@@ -41,10 +41,12 @@ def candidates(images):
     return out
 
 
-def url_map():
+def url_map(stores=True):
+    """(artist, release) -> sleeve URLs, largest first. Last.fm's own image wins;
+    with stores=True, Deezer or Apple fill in where Last.fm has none."""
     out = {}
     for f in glob.glob(os.path.join(CACHE, "*.json")):
-        if os.path.basename(f).startswith("artist--"):
+        if os.path.basename(f).startswith(("artist--", "similar--", "deezer--")):
             continue
         try:
             a = (json.load(open(f)).get("album") or {})
@@ -55,6 +57,14 @@ def url_map():
         us = candidates(a.get("image") or [])
         if us:
             out[(a.get("artist", ""), a["name"])] = us
+    if stores:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from stores import cached
+        for k, d in cached().items():
+            if k not in out:
+                us = [u for u in (d.get("cover"), d.get("cover_big")) if u]
+                if us:
+                    out[k] = us
     return out
 
 

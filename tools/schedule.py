@@ -18,8 +18,8 @@ POOL = os.path.join(DATA, "albums.json")
 EPOCH = "2026-10-05"
 STATION_TZ = "America/Chicago"
 
-# Your own records stay off the station.
-EXCLUDE_ARTISTS = {"gregor egan", "goose"}
+# Your own records stay off the station, and so does anyone Gregor has ruled out.
+EXCLUDE_ARTISTS = {"gregor egan", "goose", "vermeer"}
 
 # Fame is relative to scene: 30k listeners is canonical in techno and nothing in rock.
 # So the canon is trimmed per genre, then a hard ceiling catches the outright megahits.
@@ -248,10 +248,38 @@ def main():
         sys.exit("No data/albums.json - run tools/pull.py first.")
     pool = json.load(open(POOL))
 
+    # Hand-picked records (data/include.json) skip the play-count, track-count and
+    # genre filters: Gregor's say-so outranks what Last.fm happened to hear. The
+    # fame ceiling, exclusions and the sleeve rule still apply to them.
+    inc_path = os.path.join(DATA, "include.json")
+    picks = {tuple(x) for x in json.load(open(inc_path))} if os.path.exists(inc_path) else set()
+    picked = lambda r: (r["artist"], r["release"]) in picks
+
+    # Deezer/Apple tracklists, cached by `pull.py stores`, stand in where Last.fm
+    # has none or only times some of the tracks.
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from stores import cached as store_cache
+    shelf = store_cache()
+    lent = 0
+    for r in pool:
+        d = shelf.get((r["artist"], r["release"]))
+        st = (d or {}).get("tracks") or []
+        if not st or not all(t["secs"] for t in st):
+            continue
+        tr = r.get("tracks") or []
+        if not tr or (len(tr) == len(st) and not all(t.get("secs") for t in tr)):
+            r["tracks"] = st
+            r["secs"] = sum(t["secs"] for t in st)
+            lent += 1
+    print("  %d tracklists filled in from Deezer/Apple" % lent)
+
     if a.min_plays_per_track or a.min_tracks > 1:
         keep, untracked, singles = [], 0, 0
         for r in pool:
             nt = len(r.get("tracks") or [])
+            if picked(r):
+                keep.append(r)
+                continue
             if not nt:
                 untracked += 1          # no tracklist from Last.fm, can't be scored
                 continue
@@ -279,12 +307,11 @@ def main():
     if not a.all_genres:
         before = len(pool)
         untagged = [r for r in pool if not r.get("tags")]
-        pool = [r for r in pool if is_electronic(r.get("tags") or [])]
+        pool = [r for r in pool if picked(r) or is_electronic(r.get("tags") or [])]
         print("  electronic-adjacent only: %d of %d kept (%d had no tags at all)"
               % (len(pool), before, len(untagged)))
 
     if not a.allow_artless:
-        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         from art import url_map            # reads the local cache, makes no API calls
         have = url_map()
         dead = set()
@@ -308,6 +335,9 @@ def main():
                            a.max_listeners or 10 ** 12)
 
     pool = clean(pool, a.max_minutes)
+    missing = picks - {(r["artist"], r["release"]) for r in pool}
+    for m in sorted(missing):
+        print("  ! hand-picked but not on air: %s — %s" % m)
 
     if os.path.exists(SCHED):
         sched = json.load(open(SCHED))
@@ -322,9 +352,13 @@ def main():
     overrides = json.load(open(ov_path)) if os.path.exists(ov_path) else {}
 
     records = sched["records"]
-    # Existing records get re-tidied too. This rewrites fields in place and never
-    # touches order or membership, so slot indexes stay valid.
+    # Existing records get refreshed and re-tidied too. This rewrites fields in place
+    # and never touches order or membership, so slot indexes stay valid.
+    fresh = {key(r): r for r in pool}
     for rec in records:
+        src = fresh.get(key(rec))
+        if src:
+            rec.update({f: src.get(f) for f in ("tags", "tracks", "secs", "plays")})
         rec["tags"] = tidy_tags(rec.get("tags") or [], rec.get("artist") or "")
         ov = overrides.get(rec["artist"] + " - " + rec["release"])
         if ov:

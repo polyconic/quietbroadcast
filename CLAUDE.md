@@ -78,7 +78,7 @@ but removing it from the array corrupts every past slot.
 ./refresh.sh
 ```
 
-That is the whole thing — it runs the four stages, fetches sleeves, and prints which
+That is the whole thing — it runs the pull stages, the store lookups, fetches sleeves, and prints which
 records are new. The filter values live at the top of the script. Safe to run any time:
 aired slots are frozen, only the future is rebuilt, and nothing publishes until you
 commit and push.
@@ -110,8 +110,34 @@ Two judgment calls worth knowing: disco and dub are in, because nu-disco and dub
 techno are entangled with the rest; and Gorillaz and Fishmans get through on their
 electronic tags, which is "adjacent" behaving as asked.
 
-`EXCLUDE_ARTISTS` keeps records off the station entirely: Gregor's own (`gregor egan`)
-and `goose`, which slipped the electronic gate on a stray tag. Exact artist match.
+`EXCLUDE_ARTISTS` keeps records off the station entirely: Gregor's own (`gregor egan`),
+`goose`, which slipped the electronic gate on a stray tag, and `vermeer`, which he
+ruled out by ear. Exact artist match.
+
+## Hand-picked records and the store fallback
+
+**Last.fm only hears what gets scrobbled, and it misses a lot.** At the restart it had
+240 scrobbles in 25 days, none at all from 15 to 23 September, and most new EPs logged
+as one track — so records Gregor plainly loves failed "played through at least once".
+Two fixes:
+
+- **`data/include.json`** lists `[artist, release]` pairs Gregor names by hand (the first
+  batch came from a screenshot of his Spotify listening). They skip the play-count,
+  track-count and genre filters — his say-so outranks what Last.fm heard — but still
+  obey the fame ceiling, `EXCLUDE_ARTISTS` and the sleeve rule. Use Last.fm's exact
+  spelling where the record is in the library, so plays and tags join up; `enrich`
+  fetches them even at zero plays. The scheduler prints any pick that didn't make it.
+  When he names a record, add it here.
+- **`tools/stores.py`** asks Deezer, then Apple's iTunes catalog, for what Last.fm lacks:
+  a sleeve (about 50 well-played records were being dropped for having none on Last.fm,
+  The Deer Hunter EP among them) and a tracklist (Last.fm has none for hundreds of
+  albums, and often times only some tracks). Public APIs, no key. `pull.py stores`
+  looks up anything with 3+ plays that is missing either, plus every pick, and caches
+  results — misses too — as `data/.cache/deezer--*.json`. Matching is strict: same
+  artist (or one shared credit, for splits and collaborations) and same title once
+  "EP", bracketed notes and punctuation are folded away. **A wrong sleeve is worse than
+  none**, so don't loosen it. Last.fm's own image still wins when it has one; store
+  sleeves are 1000px and go through the same webp/800px pipeline.
 
 **Artless records are dropped.** `schedule.py` imports `url_map()` from `art.py` to see
 what the local cache has a sleeve URL for, and also reads `data/art_failed.json` — the

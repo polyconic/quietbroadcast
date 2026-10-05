@@ -3,6 +3,7 @@
 
   python3 tools/pull.py albums              # stage 1 — the pool, with playcounts
   python3 tools/pull.py enrich --min 12     # stage 2 — tags, tracklists, durations
+  python3 tools/pull.py stores              # sleeves and tracklists Last.fm lacks
 """
 import argparse, json, os, sys, time, urllib.parse, urllib.request
 
@@ -89,9 +90,21 @@ def secs(v):
         return 0
 
 
+def included():
+    """Records Gregor has named by hand. They skip the play-count filters, so they
+    are fetched however few times Last.fm saw them - even never."""
+    p = os.path.join(DATA, "include.json")
+    return [tuple(x) for x in json.load(open(p))] if os.path.exists(p) else []
+
+
 def enrich(rows, minplays):
     os.makedirs(CACHE, exist_ok=True)
-    pool = [r for r in rows if r["plays"] >= minplays]
+    picks = included()
+    have = {(r["artist"], r["release"]) for r in rows}
+    rows = rows + [{"artist": a, "release": t, "plays": 0, "mbid": "", "url": ""}
+                   for a, t in picks if (a, t) not in have]
+    picks = set(picks)
+    pool = [r for r in rows if r["plays"] >= minplays or (r["artist"], r["release"]) in picks]
     print("  enriching %d albums (>= %d plays)" % (len(pool), minplays), flush=True)
     done = []
     for i, r in enumerate(pool, 1):
@@ -120,6 +133,49 @@ def enrich(rows, minplays):
         if i % 25 == 0:
             print("    %d/%d" % (i, len(pool)), flush=True)
     return done
+
+
+def stores(rows):
+    """Ask Deezer, then Apple, for what Last.fm is missing: a sleeve, or a tracklist
+    to score the record by. Only records that could plausibly air are looked up -
+    electronic-tagged, under the fame ceiling, three plays at least - plus anything
+    named in include.json."""
+    from concurrent.futures import ThreadPoolExecutor
+    from art import url_map
+    from schedule import is_electronic
+    from stores import lookup
+    sleeves = url_map(stores=False)
+    picks = set(included())
+    at_path = os.path.join(DATA, "artist_tags.json")
+    at = json.load(open(at_path)) if os.path.exists(at_path) else {}
+
+    def wanted(r):
+        k = (r["artist"], r["release"])
+        if k in picks:
+            return True
+        if r["plays"] < 3 or (r.get("listeners") or 0) >= 100000:
+            return False
+        if not is_electronic(r.get("tags") or at.get(r["artist"]) or []):
+            return False
+        return k not in sleeves or not r.get("tracks")
+
+    todo = [r for r in rows if wanted(r)]
+    print("  looking up %d records Last.fm has no sleeve or tracklist for" % len(todo), flush=True)
+
+    def one(r):
+        try:
+            return bool(lookup(r["artist"], r["release"]).get("id"))
+        except Exception as e:
+            print("    ! %s — %s (%s)" % (r["artist"], r["release"], e), flush=True)
+            return False
+
+    found = 0
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        for i, ok in enumerate(pool.map(one, todo), 1):
+            found += ok
+            if i % 50 == 0:
+                print("    %d/%d" % (i, len(todo)), flush=True)
+    return found, len(todo)
 
 
 def artist_tags(rows):
@@ -190,7 +246,7 @@ def similar_artists(rows):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("stage", choices=["albums", "enrich", "artists", "similar"])
+    p.add_argument("stage", choices=["albums", "enrich", "artists", "similar", "stores"])
     p.add_argument("--user", default="greggorrr")
     p.add_argument("--min", type=int, default=10)
     a = p.parse_args()
@@ -204,6 +260,13 @@ def main():
         print("\n  %d albums -> data/albums.raw.json" % len(rows))
         histogram(rows)
         print("\n  then: python3 tools/pull.py enrich --min N")
+    elif a.stage == "stores":
+        src = os.path.join(DATA, "albums.json")
+        if not os.path.exists(src):
+            sys.exit("Run the enrich stage first.")
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        found, n = stores(json.load(open(src)))
+        print("\n  %d of %d matched on Deezer or Apple (cached in data/.cache)" % (found, n))
     elif a.stage == "similar":
         src = os.path.join(DATA, "albums.json")
         if not os.path.exists(src):
